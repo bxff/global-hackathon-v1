@@ -56,26 +56,17 @@ Y_OFFSET = 100
 
 def generate_tldraw_index() -> str:
     """
-    Generate a proper TLDRaw index key matching the working demo format.
+    Generate a proper TLDRaw index key that works with TLDraw validation.
+    Based on the demo file, TLDraw uses short random alphanumeric strings.
     
     Returns:
-        A valid TLDRaw index string (e.g., "a5SrRBsV")
+        A valid TLDRaw index string that passes validation
     """
-    # Generate 6 random bytes and encode with URL-safe base64
-    random_bytes = secrets.token_bytes(6)
-    base64_bytes = base64.urlsafe_b64encode(random_bytes)
-    # Remove padding and underscores, convert to proper format
-    encoded = base64_bytes.decode('ascii').rstrip('=').replace('_', '').replace('-', '')
-    
-    # Ensure we have exactly 7 characters after the 'a' prefix
-    if len(encoded) > 7:
-        encoded = encoded[:7]
-    elif len(encoded) < 7:
-        # Pad with additional random characters if needed
-        while len(encoded) < 7:
-            encoded += secrets.choice('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789')
-    
-    return 'a' + encoded
+    # Generate a random 8-character alphanumeric string starting with 'a'
+    # Based on the demo file patterns like "a3JY9ifV", "a29jJ14V", etc.
+    chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+    random_part = ''.join(secrets.choice(chars) for _ in range(7))
+    return f"a{random_part}"
 
 
 def transform_coordinates(x: float, y: float, move_pos: Tuple[float, float] = (0, 0)) -> Tuple[float, float]:
