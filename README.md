@@ -1,5 +1,7 @@
 # 🚀 ACTA Global Hackathon
 
+PYTHONPATH=src python3 -m rmc tests/rm/abcd.strokes.rm -o test_corrected_text_strokes.tldr
+
 **24 hours to build something impressive.**
 
 ## ⏰ Timeline
