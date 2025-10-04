@@ -38,6 +38,10 @@ for file in "$TEST_DIR"/*.rm; do
         echo "Running test pdf..."
         rmc -t pdf "$file" -o "$OUTPUT_DIR/pdf/$file_name.pdf"
 
+        # Run tldr test command
+        echo "Running test pdf..."
+        rmc -t tldr "$file" -o "$OUTPUT_DIR/pdf/$file_name.pdf"
+
         echo "----------------------------------------"
     fi
 done

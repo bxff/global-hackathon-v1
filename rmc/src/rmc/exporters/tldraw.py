@@ -3,13 +3,16 @@
 TLDRaw is a raw stroke data format compatible with tldraw applications.
 This exporter extracts stroke data from reMarkable files and converts it
 to the TLDRaw JSON structure.
+
+Reimplemented based on patterns from inmkl.py and ocif_tldr_converter.ts
+to properly handle coordinate transformation and TLDRaw format requirements.
 """
 
 import json
 import logging
 import base64
 import secrets
-from typing import Dict, List, Any, Tuple
+from typing import Dict, List, Any, Tuple, Optional
 from rmscene import SceneTree
 from rmscene import scene_items as si
 from rmscene.text import TextDocument
@@ -40,19 +43,19 @@ COLOR_MAP = {
     si.PenColor.YELLOW_2: "yellow",
 }
 
-# Size mapping from reMarkable to TLDRaw size names
-SIZE_MAP = {
-    "thin": "s",
-    "medium": "m", 
-    "thick": "l",
-    "very_thick": "xl",
-}
+# Coordinate transformation constants (from inmkl.py)
+SCALE_FACTOR = 1.0  # No scaling for TLDRaw, keep original coordinates
+X_OFFSET = 0
+Y_OFFSET = 0
 
 
-def generate_tldraw_index() -> str:
+def generate_tldraw_index(prefix: str = "a") -> str:
     """
     Generate a proper TLDRaw index key matching the working demo format.
     
+    Args:
+        prefix: The prefix for the index (default: "a")
+        
     Returns:
         A valid TLDRaw index string (e.g., "a5SrRBsV")
     """
@@ -62,7 +65,7 @@ def generate_tldraw_index() -> str:
     # Remove padding and underscores, convert to proper format
     encoded = base64_bytes.decode('ascii').rstrip('=').replace('_', '').replace('-', '')
     
-    # Ensure we have exactly 7 characters after the 'a' prefix
+    # Ensure we have exactly 7 characters after the prefix
     if len(encoded) > 7:
         encoded = encoded[:7]
     elif len(encoded) < 7:
@@ -70,24 +73,17 @@ def generate_tldraw_index() -> str:
         while len(encoded) < 7:
             encoded += secrets.choice('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789')
     
-    return 'a' + encoded
+    return prefix + encoded
 
 
-def tree_to_tldraw(tree: SceneTree, output) -> None:
+def create_tldraw_document_structure() -> Dict[str, Any]:
     """
-    Convert a SceneTree to TLDRaw JSON format based on the reference implementation.
+    Create the base TLDRaw document structure based on ocif_tldr_converter.ts pattern.
     
-    Args:
-        tree: The SceneTree extracted from the .rm file
-        output: IO stream to write the JSON output
+    Returns:
+        Base TLDRaw document dictionary
     """
-    _logger.debug("Exporting %d items to TLDRaw format", len(list(tree.walk())))
-    
-    # Get anchor positions for proper coordinate transformation
-    anchor_pos = build_anchor_pos(tree.root_text)
-    
-    # Build TLDRaw document structure based on working demo format
-    tldraw_doc = {
+    return {
         "tldrawFileFormatVersion": 1,
         "schema": {
             "schemaVersion": 2,
@@ -209,130 +205,82 @@ def tree_to_tldraw(tree: SceneTree, output) -> None:
             },
         ]
     }
+
+
+def tree_to_tldraw(tree: SceneTree, output) -> None:
+    """
+    Convert a SceneTree to TLDRaw JSON format.
+    
+    This function follows the pattern from inmkl.py for coordinate transformation
+    and tree traversal, while using the TLDRaw structure from ocif_tldr_converter.ts.
+    
+    Args:
+        tree: The SceneTree extracted from the .rm file
+        output: IO stream to write the JSON output
+    """
+    _logger.debug("Exporting %d items to TLDRaw format", len(list(tree.walk())))
+    
+    # Get anchor positions for proper coordinate transformation (from inmkl.py)
+    anchor_pos = build_anchor_pos(tree.root_text)
+    
+    # Create base TLDRaw document structure
+    tldraw_doc = create_tldraw_document_structure()
     
     # Process root text if present
     shape_index = 1
     if tree.root_text is not None:
         shape_index = process_root_text_for_tldraw(tree.root_text, tldraw_doc["records"], shape_index)
     
-    # Process all strokes and convert to shape records
-    shape_index = process_group_for_tldraw(tree.root, tldraw_doc["records"], anchor_pos, shape_index)
+    # Process all strokes and convert to shape records using inmkl.py pattern
+    shape_index = process_group_for_tldraw(tree.root, tldraw_doc["records"], anchor_pos, shape_index, (0, 0))
     
     # Write JSON output
     json.dump(tldraw_doc, output, indent=2)
     _logger.debug("Finished TLDRaw export with %d shapes", shape_index - 1)
 
 
-def convert_stroke_to_shape_record(
-    stroke: si.Line, 
-    shape_index: int, 
-    anchor_pos: Dict
-) -> Dict[str, Any]:
-    """
-    Convert a reMarkable stroke to a TLDRaw shape record.
-    
-    Args:
-        stroke: The reMarkable line/stroke
-        shape_index: Index for the shape (used for ordering)
-        anchor_pos: Anchor position mapping
-        
-    Returns:
-        TLDRaw shape record dictionary or None if conversion fails
-    """
-    try:
-        # Get pen properties
-        color = COLOR_MAP.get(stroke.color, "black")
-        
-        # Convert reMarkable thickness to TLDRaw size
-        size = get_tldraw_size(stroke.thickness_scale)
-        
-        # Convert points to TLDRaw format
-        points = []
-        for point in stroke.points:
-            # TLDRaw points have x, y, z (pressure) format
-            x = point.x
-            y = point.y
-            z = 0.5  # Default pressure, can be calculated from point.pressure if needed
-            points.append({"x": x, "y": y, "z": z})
-        
-        if not points:
-            return None
-        
-        # Create TLDRaw shape record based on reference format
-        shape_record = {
-            "x": points[0]["x"],
-            "y": points[0]["y"],
-            "rotation": 0,
-            "isLocked": False,
-            "opacity": 1,
-            "meta": {},
-            "id": f"shape:{shape_index:02d}",  # Generate unique ID
-            "type": "draw",
-            "props": {
-                "segments": [
-                    {
-                        "type": "free",
-                        "points": points
-                    }
-                ],
-                "color": color,
-                "fill": "none",
-                "dash": "draw",
-                "size": size,
-                "isComplete": True,
-                "isClosed": False,
-                "isPen": False,
-                "scale": 1
-            },
-            "parentId": "page:page",
-            "index": generate_tldraw_index(),
-            "typeName": "shape"
-        }
-        
-        return shape_record
-        
-    except Exception as e:
-        _logger.error("Failed to convert stroke %s: %s", shape_index, e)
-        return None
-
-
 def process_group_for_tldraw(
     group: si.Group, 
     records: List[Dict], 
     anchor_pos: Dict, 
-    shape_index: int
+    shape_index: int,
+    move_pos: Tuple[float, float] = (0, 0)
 ) -> int:
     """
-    Process a group and all its children, converting strokes to TLDRaw shape records
-    with proper coordinate transformation.
+    Process a group and all its children, converting strokes to TLDRaw shape records.
+    
+    This function follows the recursive pattern from inmkl.py's draw_tree function,
+    properly handling coordinate transformation with anchor positions and move positions.
     
     Args:
         group: The group to process
         records: List to add shape records to
         anchor_pos: Anchor position mapping
         shape_index: Starting shape index
+        move_pos: Current movement position for coordinate transformation
         
     Returns:
         Next available shape index
     """
     current_index = shape_index
     
-    # Get anchor position for this group
-    anchor_x, anchor_y = get_anchor(group, anchor_pos)
-    _logger.debug(f"Group {group.node_id}: anchor_x={anchor_x}, anchor_y={anchor_y}")
-    
     for child_id in group.children:
         child = group.children[child_id]
         _logger.debug("Processing child: %s %s", child_id, type(child))
         
         if isinstance(child, si.Group):
-            # Process nested groups recursively
-            current_index = process_group_for_tldraw(child, records, anchor_pos, current_index)
+            # A group (Pen Type) has anchor coordinates to which the contained strokes' point coordinates are relative
+            # This follows the pattern from inmkl.py's draw_tree function
+            move_x, move_y = move_pos
+            anchor_x, anchor_y = get_anchor(child, anchor_pos)
+            current_index = process_group_for_tldraw(
+                child, records, anchor_pos, current_index, (anchor_x + move_x, anchor_y + move_y)
+            )
             
         elif isinstance(child, si.Line):
             # Convert stroke to TLDRaw shape with coordinate transformation
             shape_record = convert_stroke_to_shape_record_with_transform(
-                child, current_index, anchor_x, anchor_y
+                child, current_index, move_pos
             )
             if shape_record:
                 records.append(shape_record)
@@ -344,49 +292,60 @@ def process_group_for_tldraw(
 def convert_stroke_to_shape_record_with_transform(
     stroke: si.Line, 
     shape_index: int, 
-    anchor_x: float,
-    anchor_y: float
-) -> Dict[str, Any]:
+    move_pos: Tuple[float, float]
+) -> Optional[Dict[str, Any]]:
     """
     Convert a reMarkable stroke to a TLDRaw shape record with coordinate transformation.
+    
+    This function applies the coordinate transformation pattern from inmkl.py,
+    using move_pos to accumulate anchor transformations.
     
     Args:
         stroke: The reMarkable line/stroke
         shape_index: Index for the shape (used for ordering)
-        anchor_x: X coordinate offset from anchor
-        anchor_y: Y coordinate offset from anchor
+        move_pos: Movement position for coordinate transformation
         
     Returns:
         TLDRaw shape record dictionary or None if conversion fails
     """
     try:
-        # Get pen properties
+        # Get pen properties with color fix (from inmkl.py)
         color = COLOR_MAP.get(stroke.color, "black")
+        
+        # Handle highlighter color fix (from inmkl.py)
+        if stroke.color.value == 9:  # Special case for highlighter
+            color = "yellow"
         
         # Convert reMarkable thickness to TLDRaw size
         size = get_tldraw_size(stroke.thickness_scale)
         
         # Convert points to TLDRaw format with coordinate transformation
         points = []
+        move_x, move_y = move_pos
+        
         for point in stroke.points:
-            # Apply anchor transformation (no scaling for now)
-            x = point.x + anchor_x
-            y = point.y + anchor_y
-            z = 0.5  # Default pressure, can be calculated from point.pressure if needed
+            # Apply coordinate transformation (from inmkl.py pattern)
+            x = point.x + move_x + X_OFFSET
+            y = point.y + move_y + Y_OFFSET
+            z = point.pressure if hasattr(point, 'pressure') and point.pressure is not None else 0.5
             points.append({"x": x, "y": y, "z": z})
         
         if not points:
             return None
         
-        # Create TLDRaw shape record based on reference format
+        # Calculate shape position from first point
+        shape_x = points[0]["x"]
+        shape_y = points[0]["y"]
+        
+        # Create TLDRaw shape record based on ocif_tldr_converter.ts pattern
         shape_record = {
-            "x": points[0]["x"],
-            "y": points[0]["y"],
+            "x": shape_x,
+            "y": shape_y,
             "rotation": 0,
             "isLocked": False,
             "opacity": 1,
             "meta": {},
-            "id": f"shape:{shape_index:02d}",  # Generate unique ID
+            "id": f"shape:{shape_index:02d}",
             "type": "draw",
             "props": {
                 "segments": [
@@ -443,12 +402,8 @@ def process_root_text_for_tldraw(
             
             if str(paragraph).strip():  # Only process non-empty paragraphs
                 # Calculate position using same scaling as SVG
-                x_pos = xx(text.pos_x)
-                y_pos = yy(text.pos_y + y_offset)
-                
-                # Determine text style based on paragraph style
-                font_size = get_tldraw_font_size(paragraph.style.value)
-                font_style = get_tldraw_font_style(paragraph.style.value)
+                x_pos = xx(text.pos_x) + X_OFFSET
+                y_pos = yy(text.pos_y + y_offset) + Y_OFFSET
                 
                 # Create TLDRaw text shape record with correct richText format
                 text_shape = {
@@ -488,54 +443,14 @@ def process_root_text_for_tldraw(
                 
                 records.append(text_shape)
                 current_index += 1
-                _logger.debug(f"Added text shape: '{str(paragraph).strip()}' at ({x_pos}, {y_pos})")
+                _logger.debug("Added text shape: '%s' at (%d, %d)", str(paragraph).strip(), x_pos, y_pos)
                 
     except Exception as e:
-        _logger.error(f"Failed to process root text: {e}")
+        _logger.error("Failed to process root text: %s", e)
         import traceback
         traceback.print_exc()
     
     return current_index
-
-
-def get_tldraw_font_size(paragraph_style: str) -> int:
-    """
-    Convert reMarkable paragraph style to TLDRaw font size.
-    
-    Args:
-        paragraph_style: The reMarkable paragraph style value
-        
-    Returns:
-        TLDRaw font size in pixels
-    """
-    style_sizes = {
-        "PLAIN": 16,
-        "BOLD": 18,
-        "HEADING": 24,
-        "BULLET": 16,
-        "BULLET2": 14,
-        "CHECKBOX": 16,
-        "CHECKBOX_CHECKED": 16,
-    }
-    return style_sizes.get(paragraph_style, 16)
-
-
-def get_tldraw_font_style(paragraph_style: str) -> str:
-    """
-    Convert reMarkable paragraph style to TLDRaw font style.
-    
-    Args:
-        paragraph_style: The reMarkable paragraph style value
-        
-    Returns:
-        TLDRaw font style string
-    """
-    if paragraph_style == "BOLD":
-        return "bold"
-    elif paragraph_style == "HEADING":
-        return "bold"
-    else:
-        return "normal"
 
 
 def get_tldraw_size(thickness_scale: float) -> str:
@@ -626,10 +541,10 @@ def extract_raw_stroke_data(
         point_data = {
             "x": point.x,
             "y": point.y,
-            "speed": point.speed,
-            "direction": point.direction,
-            "width": point.width,
-            "pressure": point.pressure,
+            "speed": getattr(point, 'speed', 0),
+            "direction": getattr(point, 'direction', 0),
+            "width": getattr(point, 'width', 1),
+            "pressure": getattr(point, 'pressure', 0.5),
         }
         points_data.append(point_data)
     
@@ -644,9 +559,9 @@ def extract_raw_stroke_data(
             "value": stroke.color.value,
         },
         "thickness_scale": stroke.thickness_scale,
-        "starting_length": stroke.starting_length,
+        "starting_length": getattr(stroke, 'starting_length', 0),
         "points": points_data,
-        "move_id": stroke.move_id,
+        "move_id": getattr(stroke, 'move_id', 0),
     }
     
     return stroke_data
