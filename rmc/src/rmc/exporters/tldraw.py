@@ -39,20 +39,22 @@ TLDRAW_MOST_NEGATIVE_IDX = TLDRAW_CHARS_DICT[TLDRAW_MOST_NEGATIVE]
 TLDRAW_FIRST_NEGATIVE_IDX = TLDRAW_FIRST_POSITIVE_IDX - 1
 
 # Color mapping from reMarkable to TLDRaw color names
+# Valid tldraw colors: "black", "grey", "light-violet", "violet", "blue",
+# "light-blue", "yellow", "orange", "green", "light-green", "light-red", "red", "white"
 COLOR_MAP = {
     si.PenColor.BLACK: "black",
-    si.PenColor.GRAY: "gray",
+    si.PenColor.GRAY: "grey",  # Fixed: use British spelling for tldraw
     si.PenColor.WHITE: "white",
     si.PenColor.YELLOW: "yellow",
     si.PenColor.GREEN: "green",
-    si.PenColor.PINK: "pink",
+    si.PenColor.PINK: "red",  # Map pink to red (closest valid color)
     si.PenColor.BLUE: "blue",
     si.PenColor.RED: "red",
-    si.PenColor.GRAY_OVERLAP: "gray",
+    si.PenColor.GRAY_OVERLAP: "grey",
     si.PenColor.HIGHLIGHT: "yellow",  # Yellow for highlighter
-    si.PenColor.GREEN_2: "green",
-    si.PenColor.CYAN: "cyan",
-    si.PenColor.MAGENTA: "magenta",
+    si.PenColor.GREEN_2: "light-green",  # Use light-green variant
+    si.PenColor.CYAN: "light-blue",  # Map cyan to light-blue
+    si.PenColor.MAGENTA: "violet",  # Map magenta to violet
     si.PenColor.YELLOW_2: "yellow",
 }
 
