@@ -28,19 +28,20 @@ Complete `.rm` to `.tldr` conversion system that transforms reMarkable files int
 ## Installation
 
 ```bash
+cd rmc
 # Install dependencies
 pip install -r requirements.txt
-
-# Run the conversion
-PYTHONPATH=src python3 -m rmc.cli -t tldraw -o test_converted5.tldr test_converted5.rm
 ```
 
 ## Usage
 
 ```bash
+cd rmc
 # Convert reMarkable file to tldraw format
-PYTHONPATH=src python3 -m rmc.cli -t tldraw -o test_converted5.tldr test_converted5.rm
+PYTHONPATH=src python3 -m rmc.cli -t tldraw -o test.tldr tests/rm/writing_tools.rm
 ```
+
+Then drag the `test.tldr` to tldraw.com editor.
 
 ## Future Implementation: Bidirectional Sync
 
